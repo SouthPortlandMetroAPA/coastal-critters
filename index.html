@@ -414,7 +414,7 @@
       <form id="submitForm" autocomplete="off" onsubmit="event.preventDefault();submitForm()">
         <div class="form-group">
           <label for="playerName">Your Name</label>
-          <input type="text" id="playerName" required placeholder="Your name" autocomplete="name" enterkeyhint="next">
+          <input type="text" id="playerName" required placeholder="Your name" autocomplete="name" enterkeyhint="next" oninput="updateSubmitState()">
         </div>
 
         <div class="form-group">
@@ -434,18 +434,18 @@
 
         <div class="form-group">
           <label for="story">Your Story</label>
-          <textarea id="story" required maxlength="1000" placeholder="What made the moment special? Keep it short and sweet." oninput="updateCharCount()"></textarea>
+          <textarea id="story" required maxlength="1000" placeholder="What made the moment special? Keep it short and sweet." oninput="updateCharCount();updateSubmitState()"></textarea>
           <div class="char-count"><span id="charCount">0</span> / 1000</div>
         </div>
 
         <div class="form-group">
           <label class="check-group">
-            <input type="checkbox" id="consentSocial">
+            <input type="checkbox" id="consentSocial" required onchange="updateSubmitState()">
             <span>I give permission for the APA NW Challenge to share my name, story, and photo.</span>
           </label>
         </div>
 
-        <button type="submit" class="btn btn-primary" id="submitBtn">Share My Story</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Share My Story</button>
       </form>
     </div>
   </div>
@@ -739,6 +739,7 @@ function showPreview() {
   document.getElementById('photoImg').src = photoDataUrl;
   document.getElementById('photoPreview').classList.add('shown');
   document.getElementById('photoWrap').classList.add('hidden');
+  updateSubmitState();
 }
 
 function clearPhoto() {
@@ -747,10 +748,25 @@ function clearPhoto() {
   document.getElementById('photoInput').value = '';
   document.getElementById('photoPreview').classList.remove('shown');
   document.getElementById('photoWrap').classList.remove('hidden');
+  updateSubmitState();
 }
 
 function updateCharCount() {
   document.getElementById('charCount').textContent = document.getElementById('story').value.length;
+}
+
+// Live validation — enable Share button only when all required fields are ready
+function updateSubmitState() {
+  var btn = document.getElementById('submitBtn');
+  if (!btn) return;
+  // Never re-enable while a submit is in flight
+  if (btn.dataset.submitting === '1') return;
+
+  var name = document.getElementById('playerName').value.trim();
+  var story = document.getElementById('story').value.trim();
+  var consent = document.getElementById('consentSocial').checked;
+  var ready = !!(name && photoBlob && story && consent);
+  btn.disabled = !ready;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -792,9 +808,11 @@ async function submitForm() {
   if (!name) { showError('Please enter your name.'); return; }
   if (!photoBlob) { showError('Please add a photo of you with your Critter.'); return; }
   if (!story) { showError('Please share a short story about your Critter.'); return; }
+  if (!consent) { showError('Please check the sharing permission to submit.'); return; }
 
   var btn = document.getElementById('submitBtn');
   btn.disabled = true;
+  btn.dataset.submitting = '1';
   btn.innerHTML = '<span class="spinner"></span>Sharing your story...';
 
   try {
@@ -804,10 +822,11 @@ async function submitForm() {
     // Ban check — show a soft content-policy message
     var banned = await isBanned();
     if (banned) {
-      showError('Your account has been temporarily disabled due to a content policy issue. If you believe this is a mistake, please talk to a tournament official.');
+      showError('Your account has been temporarily disabled due to a content policy issue. If you believe this is a mistake, please stop by the tournament desk.');
       var btnX = document.getElementById('submitBtn');
-      btnX.disabled = false;
+      btnX.dataset.submitting = '';
       btnX.textContent = 'Share My Story';
+      updateSubmitState();
       return;
     }
 
@@ -866,8 +885,9 @@ async function submitForm() {
     afterSubmitSuccess();
   } catch (e) {
     showError('Oops! ' + e.message + ' Please try again.');
-    btn.disabled = false;
+    btn.dataset.submitting = '';
     btn.textContent = 'Share My Story';
+    updateSubmitState();
   }
 }
 
@@ -876,10 +896,11 @@ function afterSubmitSuccess() {
   document.getElementById('story').value = '';
   document.getElementById('consentSocial').checked = false;
   updateCharCount();
-  clearPhoto();
+  clearPhoto();  // calls updateSubmitState internally
   var btn = document.getElementById('submitBtn');
-  btn.disabled = false;
+  btn.dataset.submitting = '';
   btn.textContent = 'Share My Story';
+  updateSubmitState();
 
   // Switch to feed and show success banner
   showScreen('feed');
@@ -1291,6 +1312,7 @@ async function downloadPhotos(all) {
 
 // Init — default to the feed
 updateCharCount();
+updateSubmitState();
 loadFeed(true);
 </script>
 </body>
