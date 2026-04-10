@@ -239,8 +239,7 @@
     .feed-post-image {
       display: block;
       width: 100%;
-      aspect-ratio: 4 / 5;
-      object-fit: cover;
+      height: auto;
       background: #eee;
     }
     .feed-post-body { padding: calc(var(--spacing) * 4) calc(var(--spacing) * 5); }
@@ -673,39 +672,67 @@ function showScreen(name) {
 // ════════════════════════════════════════════════════════════════════
 // Photo handling — resize and compress
 // ════════════════════════════════════════════════════════════════════
-function handlePhoto(e) {
+async function handlePhoto(e) {
   var file = e.target.files[0];
   if (!file) return;
   hideError();
 
-  var reader = new FileReader();
-  reader.onload = function(ev) {
-    var img = new Image();
-    img.onload = function() {
-      var maxDim = 1600;
-      var w = img.width, h = img.height;
-      if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
-      else if (h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+  try {
+    // Decode the file honoring EXIF orientation so portrait phone shots
+    // don't end up sideways. createImageBitmap with imageOrientation:'from-image'
+    // is supported on iOS 14+, modern Chrome, modern Safari. Falls back to
+    // raw Image() decoding if unsupported.
+    var source;
+    try {
+      source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch (bitmapErr) {
+      source = await loadAsImage(file);
+    }
 
-      var canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      var ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
+    var srcW = source.width || source.naturalWidth;
+    var srcH = source.height || source.naturalHeight;
 
-      canvas.toBlob(function(blob) {
-        if (!blob) { showError('Could not process that photo. Try another.'); return; }
-        photoBlob = blob;
-        photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        showPreview();
-      }, 'image/jpeg', 0.85);
+    // Resize to max 1600px on longest edge, preserving aspect ratio
+    var maxDim = 1600;
+    var w = srcW, h = srcH;
+    if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+    else if (h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
+
+    // Release ImageBitmap memory if we used one
+    if (source.close) try { source.close(); } catch (e) {}
+
+    canvas.toBlob(function(blob) {
+      if (!blob) { showError('Could not process that photo. Try another.'); return; }
+      photoBlob = blob;
+      photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      showPreview();
+    }, 'image/jpeg', 0.85);
+  } catch (err) {
+    showError('Could not read that photo. Try another.');
+  }
+}
+
+// Fallback decoder for browsers without createImageBitmap
+function loadAsImage(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() { resolve(img); };
+      img.onerror = function() { reject(new Error('decode')); };
+      img.src = ev.target.result;
     };
-    img.onerror = function() { showError('That file is not a supported image format.'); };
-    img.src = ev.target.result;
-  };
-  reader.onerror = function() { showError('Could not read that file.'); };
-  reader.readAsDataURL(file);
+    reader.onerror = function() { reject(new Error('read')); };
+    reader.readAsDataURL(file);
+  });
 }
 
 function showPreview() {
