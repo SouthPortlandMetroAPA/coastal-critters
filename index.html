@@ -504,12 +504,12 @@
 <div class="modal-overlay" id="banModal">
   <div class="modal-box">
     <h3 id="banModalTitle">Ban user?</h3>
-    <p style="color:var(--muted);font-size:0.85rem;margin:0 0 12px">This will prevent future submissions from this device, IP, and browser.</p>
+    <p style="color:var(--muted);font-size:0.85rem;margin:0 0 12px">This will hide the post from the public feed and prevent future submissions from this device, IP, and browser fingerprint. Content stays viewable in the admin feed.</p>
     <div class="form-group">
       <label>Reason (optional, admin reference only)</label>
       <input type="text" id="banReasonInput" placeholder="e.g. inappropriate content">
     </div>
-    <button class="btn btn-danger" onclick="confirmBan()">Delete Post &amp; Ban User</button>
+    <button class="btn btn-danger" onclick="confirmBan()">Hide Post &amp; Ban User</button>
     <button class="btn btn-outline" onclick="closeBanModal()">Cancel</button>
   </div>
 </div>
@@ -546,6 +546,7 @@ var feedOffset = 0;
 var feedLoading = false;
 var clientMeta = null;  // populated on load
 var pendingBan = null;  // post being banned
+var bannedIdentifiers = {};  // admin: { 'client_id:xyz': true, 'ip:abc': true, ... }
 
 // ════════════════════════════════════════════════════════════════════
 // Device fingerprinting — best-effort identification for moderation
@@ -773,12 +774,13 @@ async function submitForm() {
     // Ensure metadata captured
     if (!clientMeta) await captureClientMeta();
 
-    // Ban check — silent success for banned users (don't reveal they're banned)
+    // Ban check — show a soft content-policy message
     var banned = await isBanned();
     if (banned) {
-      try { localStorage.setItem('critters_name', name); } catch (e) {}
-      // Pretend success, skip upload entirely
-      afterSubmitSuccess();
+      showError('Your account has been temporarily disabled due to a content policy issue. If you believe this is a mistake, please talk to a tournament official.');
+      var btnX = document.getElementById('submitBtn');
+      btnX.disabled = false;
+      btnX.textContent = 'Share My Story';
       return;
     }
 
@@ -879,8 +881,22 @@ async function loadFeed(reset) {
   // Admin sees hidden posts too; regular users don't
   var hiddenFilter = IS_ADMIN ? '' : '&hidden=eq.false';
   var selectCols = IS_ADMIN
-    ? 'id,player_name,story,photo_path,created_at,hidden,client_id,ip_address,user_agent,platform,screen_size,language,timezone,consent_social'
+    ? 'id,player_name,story,photo_path,created_at,hidden,client_id,ip_address,user_agent,platform,screen_size,language,timezone,consent_social,canvas_fp,webgl_renderer,hardware_concurrency'
     : 'id,player_name,story,photo_path,created_at';
+
+  // Admin: load all current bans into a lookup table so we can tag posts
+  if (IS_ADMIN && reset) {
+    try {
+      var bResp = await fetch(SUPABASE_URL + '/rest/v1/critter_bans?select=identifier_type,identifier_value', { headers: SB_HEADERS });
+      if (bResp.ok) {
+        var bRows = await bResp.json();
+        bannedIdentifiers = {};
+        for (var bi = 0; bi < bRows.length; bi++) {
+          bannedIdentifiers[bRows[bi].identifier_type + ':' + bRows[bi].identifier_value] = true;
+        }
+      }
+    } catch (e) {}
+  }
 
   try {
     var resp = await fetch(
@@ -940,16 +956,28 @@ function formatDate(isoStr) {
   } catch (e) { return ''; }
 }
 
+function isPostAuthorBanned(post) {
+  if (post.client_id && bannedIdentifiers['client_id:' + post.client_id]) return true;
+  if (post.ip_address && bannedIdentifiers['ip:' + post.ip_address]) return true;
+  if (post.canvas_fp && bannedIdentifiers['canvas_fp:' + post.canvas_fp]) return true;
+  return false;
+}
+
 function renderPost(post) {
   var article = document.createElement('article');
   article.className = 'feed-post';
+
+  var isBanned = IS_ADMIN && isPostAuthorBanned(post);
   if (post.hidden) article.style.opacity = '0.55';
+  if (isBanned) article.style.borderColor = 'var(--danger)';
 
   var html = '';
   html += '<img class="feed-post-image" src="' + PHOTO_BASE + encodeURIComponent(post.photo_path) + '" alt="' + esc(post.player_name) + '" loading="lazy">';
   html += '<div class="feed-post-body">';
   html += '<div class="feed-post-name">' + esc(post.player_name);
-  if (post.hidden) html += ' <span class="critter-badge" style="background:#ccc;color:#555">HIDDEN</span>';
+  if (post.hidden && isBanned) html += ' <span class="critter-badge" style="background:#c0392b;color:#fff">HIDDEN &amp; BANNED</span>';
+  else if (post.hidden) html += ' <span class="critter-badge" style="background:#ccc;color:#555">HIDDEN</span>';
+  else if (isBanned) html += ' <span class="critter-badge" style="background:#c0392b;color:#fff">BANNED</span>';
   else html += ' <span class="critter-badge">CRITTER</span>';
   html += '</div>';
   html += '<div class="feed-post-date">' + esc(formatDate(post.created_at));
@@ -967,18 +995,31 @@ function renderPost(post) {
     html += '<strong>CID:</strong> ' + esc(post.client_id || '-');
     html += '</div>';
     html += '<div class="feed-post-admin-btns">';
-    html += '<button class="btn btn-outline btn-sm" onclick=\'deletePost(' + post.id + ',' + JSON.stringify(post.photo_path) + ')\'>Delete Post</button>';
-    html += '<button class="btn btn-danger btn-sm" onclick=\'openBanModal(' + JSON.stringify({
-      postId: post.id,
-      photoPath: post.photo_path,
-      playerName: post.player_name,
-      clientId: post.client_id || '',
-      ipAddr: post.ip_address || '',
-      canvasFp: post.canvas_fp || '',
-      webglRenderer: post.webgl_renderer || '',
-      platform: post.platform || '',
-      screenSize: post.screen_size || ''
-    }).replace(/'/g, '&#39;') + ')\'>Delete + Ban</button>';
+
+    // Hide / Unhide
+    if (post.hidden) {
+      html += '<button class="btn btn-outline btn-sm" onclick="setPostHidden(' + post.id + ',false)">Unhide Post</button>';
+    } else {
+      html += '<button class="btn btn-outline btn-sm" onclick="setPostHidden(' + post.id + ',true)">Hide Post</button>';
+    }
+
+    // Ban / Unban
+    if (isBanned) {
+      html += '<button class="btn btn-outline btn-sm" onclick=\'unbanFromPost(' + JSON.stringify(post.client_id || '') + ',' + JSON.stringify(post.ip_address || '') + ',' + JSON.stringify(post.canvas_fp || '') + ')\'>Unban User</button>';
+    } else {
+      html += '<button class="btn btn-danger btn-sm" onclick=\'openBanModal(' + JSON.stringify({
+        postId: post.id,
+        photoPath: post.photo_path,
+        playerName: post.player_name,
+        clientId: post.client_id || '',
+        ipAddr: post.ip_address || '',
+        canvasFp: post.canvas_fp || '',
+        webglRenderer: post.webgl_renderer || '',
+        platform: post.platform || '',
+        screenSize: post.screen_size || ''
+      }).replace(/'/g, '&#39;') + ')\'>Hide + Ban User</button>';
+    }
+
     html += '</div>';
     html += '</div>';
   }
@@ -990,26 +1031,21 @@ function renderPost(post) {
 // ════════════════════════════════════════════════════════════════════
 // Admin: delete, ban, unban, banned list
 // ════════════════════════════════════════════════════════════════════
-async function deletePost(postId, photoPath) {
+// Toggle hidden flag on a post (soft hide — keeps content intact)
+async function setPostHidden(postId, hidden) {
   if (!IS_ADMIN) return;
-  if (!confirm('Delete this post? The photo will be removed too.')) return;
+  var action = hidden ? 'Hide this post from public view?' : 'Unhide this post (make it public again)?';
+  if (!confirm(action)) return;
 
   try {
-    // Delete DB row
     var r = await fetch(SUPABASE_URL + '/rest/v1/coastal_critters?id=eq.' + postId, {
-      method: 'DELETE', headers: SB_WRITE_HEADERS
+      method: 'PATCH', headers: SB_WRITE_HEADERS,
+      body: JSON.stringify({ hidden: hidden })
     });
     if (!r.ok) throw new Error(await r.text());
-
-    // Delete photo from storage
-    await fetch(SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + photoPath, {
-      method: 'DELETE',
-      headers: { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY }
-    });
-
     loadFeed(true);
   } catch (e) {
-    alert('Delete failed: ' + e.message);
+    alert('Update failed: ' + e.message);
   }
 }
 
@@ -1049,19 +1085,38 @@ async function confirmBan() {
         body: JSON.stringify(bans)
       });
     }
-    // Delete the post too
+    // Hide the post (don't delete — content still viewable in admin feed)
     await fetch(SUPABASE_URL + '/rest/v1/coastal_critters?id=eq.' + pendingBan.postId, {
-      method: 'DELETE', headers: SB_WRITE_HEADERS
-    });
-    await fetch(SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + pendingBan.photoPath, {
-      method: 'DELETE',
-      headers: { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY }
+      method: 'PATCH', headers: SB_WRITE_HEADERS,
+      body: JSON.stringify({ hidden: true })
     });
 
     closeBanModal();
     loadFeed(true);
   } catch (e) {
     alert('Ban failed: ' + e.message);
+  }
+}
+
+// Unban a specific user by removing all their ban rows matching this post's identifiers
+async function unbanFromPost(clientId, ipAddr, canvasFp) {
+  if (!IS_ADMIN) return;
+  if (!confirm('Unban this user? They will be able to submit again.')) return;
+
+  var orParts = [];
+  if (clientId) orParts.push("and(identifier_type.eq.client_id,identifier_value.eq." + encodeURIComponent(clientId) + ")");
+  if (ipAddr) orParts.push("and(identifier_type.eq.ip,identifier_value.eq." + encodeURIComponent(ipAddr) + ")");
+  if (canvasFp) orParts.push("and(identifier_type.eq.canvas_fp,identifier_value.eq." + encodeURIComponent(canvasFp) + ")");
+  if (orParts.length === 0) return;
+
+  try {
+    var r = await fetch(SUPABASE_URL + '/rest/v1/critter_bans?or=(' + orParts.join(',') + ')', {
+      method: 'DELETE', headers: SB_WRITE_HEADERS
+    });
+    if (!r.ok) throw new Error(await r.text());
+    loadFeed(true);
+  } catch (e) {
+    alert('Unban failed: ' + e.message);
   }
 }
 
