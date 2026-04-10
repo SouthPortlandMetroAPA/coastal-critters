@@ -554,6 +554,13 @@
       <div id="bansList"></div>
     </div>
 
+    <!-- Admin: feed filter buttons -->
+    <div class="hidden" id="adminFeedFilter" style="display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-sm btn-primary" id="adminFilterAll" style="flex:1;min-width:100px;width:auto" onclick="setAdminFilter('all')">All Posts</button>
+      <button class="btn btn-sm btn-outline" id="adminFilterHidden" style="flex:1;min-width:110px;width:auto" onclick="setAdminFilter('hidden_only')">Hidden Only</button>
+      <button class="btn btn-sm btn-outline" id="adminFilterBanned" style="flex:1;min-width:130px;width:auto" onclick="setAdminFilter('hidden_banned')">Hidden &amp; Banned</button>
+    </div>
+
     <div id="feedList"></div>
     <button class="load-more hidden" id="loadMoreBtn" onclick="loadFeed(false)">Load More</button>
     <div class="feed-loading hidden" id="feedLoading">Loading stories...</div>
@@ -653,7 +660,12 @@ var SB_WRITE_HEADERS = IS_ADMIN
 if (IS_ADMIN) {
   document.getElementById('adminBadge').classList.remove('hidden');
   document.getElementById('adminDownloadPanel').classList.remove('hidden');
+  document.getElementById('adminFeedFilter').classList.remove('hidden');
+  document.getElementById('adminFeedFilter').style.display = 'flex';
 }
+
+// Admin feed filter state: 'all' | 'hidden_only' | 'hidden_banned'
+var adminFeedFilter = 'all';
 
 // ════════════════════════════════════════════════════════════════════
 // State
@@ -1089,6 +1101,31 @@ function afterSubmitSuccess() {
 // ════════════════════════════════════════════════════════════════════
 // Feed
 // ════════════════════════════════════════════════════════════════════
+
+// Admin-only: switch the feed filter mode and reload.
+function setAdminFilter(mode) {
+  if (!IS_ADMIN) return;
+  adminFeedFilter = mode;
+
+  // Update button active states
+  var btns = {
+    all: document.getElementById('adminFilterAll'),
+    hidden_only: document.getElementById('adminFilterHidden'),
+    hidden_banned: document.getElementById('adminFilterBanned')
+  };
+  for (var k in btns) {
+    if (k === mode) {
+      btns[k].classList.remove('btn-outline');
+      btns[k].classList.add('btn-primary');
+    } else {
+      btns[k].classList.remove('btn-primary');
+      btns[k].classList.add('btn-outline');
+    }
+  }
+
+  loadFeed(true);
+}
+
 async function loadFeed(reset) {
   if (feedLoading) return;
   feedLoading = true;
@@ -1102,13 +1139,24 @@ async function loadFeed(reset) {
   document.getElementById('feedLoading').classList.remove('hidden');
   document.getElementById('loadMoreBtn').classList.add('hidden');
 
-  // Admin sees hidden posts too; regular users don't
-  var hiddenFilter = IS_ADMIN ? '' : '&hidden=eq.false';
+  // Build the DB filter. Non-admins never see hidden posts.
+  // Admin filter modes:
+  //   all           -> no hidden filter (show everything, hidden included)
+  //   hidden_only   -> hidden=eq.true (DB filter); client-side strips banned
+  //   hidden_banned -> hidden=eq.true (DB filter); client-side keeps banned only
+  var hiddenFilter = '';
+  if (!IS_ADMIN) {
+    hiddenFilter = '&hidden=eq.false';
+  } else if (adminFeedFilter === 'hidden_only' || adminFeedFilter === 'hidden_banned') {
+    hiddenFilter = '&hidden=eq.true';
+  }
+
   var selectCols = IS_ADMIN
     ? 'id,player_name,story,photo_path,created_at,hidden,client_id,ip_address,user_agent,platform,screen_size,language,timezone,consent_social,canvas_fp,webgl_renderer,hardware_concurrency'
     : 'id,player_name,story,photo_path,created_at';
 
   // Admin: load all current bans into a lookup table so we can tag posts
+  // and filter by ban status client-side.
   if (IS_ADMIN && reset) {
     try {
       var bResp = await fetch(SUPABASE_URL + '/rest/v1/critter_bans?select=identifier_type,identifier_value', { headers: SB_HEADERS });
@@ -1129,11 +1177,23 @@ async function loadFeed(reset) {
       { headers: SB_HEADERS }
     );
     if (!resp.ok) throw new Error('Could not load feed');
-    var posts = await resp.json();
+    var rawPosts = await resp.json();
+    var rawCount = rawPosts.length;
+
+    // Client-side filter for admin modes that need ban status. We keep rawCount
+    // so the offset/pagination still tracks DB rows, not visible rows.
+    var posts = rawPosts;
+    if (IS_ADMIN) {
+      if (adminFeedFilter === 'hidden_only') {
+        posts = rawPosts.filter(function(p) { return !isPostAuthorBanned(p); });
+      } else if (adminFeedFilter === 'hidden_banned') {
+        posts = rawPosts.filter(function(p) { return isPostAuthorBanned(p); });
+      }
+    }
 
     document.getElementById('feedLoading').classList.add('hidden');
 
-    if (posts.length === 0 && feedOffset === 0) {
+    if (posts.length === 0 && feedOffset === 0 && document.getElementById('feedList').children.length === 0) {
       document.getElementById('feedEmpty').classList.remove('hidden');
       feedLoading = false;
       if (IS_ADMIN) loadBannedUsers();
@@ -1145,8 +1205,10 @@ async function loadFeed(reset) {
       listEl.appendChild(renderPost(posts[i]));
     }
 
-    feedOffset += posts.length;
-    if (posts.length === PAGE_SIZE) {
+    // Advance offset by the raw DB page size, not by the visible count,
+    // so client-side filtering doesn't skip rows in the next page.
+    feedOffset += rawCount;
+    if (rawCount === PAGE_SIZE) {
       document.getElementById('loadMoreBtn').classList.remove('hidden');
     }
 
