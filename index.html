@@ -1306,6 +1306,9 @@ function renderPost(post) {
       }).replace(/'/g, '&#39;') + ')\'>Hide + Ban User</button>';
     }
 
+    // Permanent Delete — destroys DB row + storage object
+    html += '<button class="btn btn-danger btn-sm" style="background:#7f1d1d;border-color:#7f1d1d" onclick=\'deletePostForever(' + post.id + ',' + JSON.stringify(post.photo_path) + ',' + JSON.stringify(post.player_name || '') + ')\'>Delete</button>';
+
     html += '</div>';
     html += '</div>';
   }
@@ -1332,6 +1335,35 @@ async function setPostHidden(postId, hidden) {
     loadFeed(true);
   } catch (e) {
     alert('Update failed: ' + e.message);
+  }
+}
+
+// Permanently destroy a post: delete the DB row AND the photo from storage.
+// Irreversible. Two confirmation prompts because there's no undo.
+async function deletePostForever(postId, photoPath, playerName) {
+  if (!IS_ADMIN) return;
+  var label = playerName ? '"' + playerName + '"' : 'this post';
+  if (!confirm('PERMANENTLY delete ' + label + '?\n\nThis removes the post AND the photo file. This cannot be undone.')) return;
+  if (!confirm('Are you absolutely sure? Last chance.')) return;
+
+  try {
+    // Delete the DB row first
+    var dbResp = await fetch(SUPABASE_URL + '/rest/v1/coastal_critters?id=eq.' + postId, {
+      method: 'DELETE', headers: SB_WRITE_HEADERS
+    });
+    if (!dbResp.ok) throw new Error(await dbResp.text());
+
+    // Delete the photo from storage
+    if (photoPath) {
+      await fetch(SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + photoPath, {
+        method: 'DELETE',
+        headers: { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY }
+      });
+    }
+
+    loadFeed(true);
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
   }
 }
 
