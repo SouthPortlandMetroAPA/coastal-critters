@@ -404,7 +404,7 @@
   </header>
 
   <!-- ═══ Screen: Share Form ═══ -->
-  <div id="formScreen">
+  <div id="formScreen" class="hidden">
     <div class="card">
       <div class="intro">
         Someone just gave you a <strong>Coastal Critter</strong>? Tell us how it happened. Your story helps celebrate the good moments that make this tournament special.
@@ -452,7 +452,7 @@
   </div>
 
   <!-- ═══ Screen: Feed ═══ -->
-  <div id="feedScreen" class="hidden">
+  <div id="feedScreen">
     <div class="feed-header">
       <h2>The Critter Feed</h2>
       <p>Stories of kindness from the tournament floor</p>
@@ -490,11 +490,11 @@
 
 <!-- ═══ Bottom Nav ═══ -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" id="navShare" onclick="showScreen('form')">
+  <button class="nav-btn" id="navShare" onclick="showScreen('form')">
     <span class="nav-icon">&#10084;&#65039;</span>
     <span>Share</span>
   </button>
-  <button class="nav-btn" id="navFeed" onclick="showScreen('feed');loadFeed(true)">
+  <button class="nav-btn active" id="navFeed" onclick="showScreen('feed');loadFeed(true)">
     <span class="nav-icon">&#127754;</span>
     <span>Feed</span>
   </button>
@@ -1207,8 +1207,9 @@ async function downloadPhotos(all) {
   }
 }
 
-// Init
+// Init — default to the feed
 updateCharCount();
+loadFeed(true);
 </script>
 </body>
 </html>
