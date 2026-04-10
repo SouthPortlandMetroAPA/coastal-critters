@@ -388,6 +388,85 @@
     }
     .modal-box h3 { margin: 0 0 calc(var(--spacing) * 3); }
     .modal-box .btn { margin-top: calc(var(--spacing) * 2); }
+
+    /* Content Guidelines modal — taller, scrollable, readable */
+    .guidelines-box {
+      background: #fff;
+      border-radius: var(--radius);
+      max-width: 480px;
+      width: 100%;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .guidelines-scroll {
+      overflow-y: auto;
+      padding: calc(var(--spacing) * 5) calc(var(--spacing) * 5) calc(var(--spacing) * 3);
+      -webkit-overflow-scrolling: touch;
+    }
+    .guidelines-scroll h3 {
+      margin: 0 0 calc(var(--spacing) * 3);
+      font-size: 1.1rem;
+    }
+    .guidelines-scroll .intro {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: calc(var(--spacing) * 4);
+    }
+    .guidelines-scroll .intro strong { color: var(--text); }
+    .guidelines-scroll .rules-header {
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-bottom: calc(var(--spacing) * 2);
+    }
+    .guidelines-scroll ol.rules {
+      margin: 0 0 calc(var(--spacing) * 4);
+      padding: 0 0 0 calc(var(--spacing) * 5);
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+    .guidelines-scroll ol.rules li {
+      margin-bottom: calc(var(--spacing) * 2);
+    }
+    .guidelines-scroll .enforcement {
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      padding-top: calc(var(--spacing) * 3);
+      border-top: 1px solid var(--border);
+    }
+    .guidelines-actions {
+      padding: calc(var(--spacing) * 3) calc(var(--spacing) * 5) calc(var(--spacing) * 5);
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+    }
+
+    /* Banned-user notice modal */
+    .banned-box {
+      background: #fff;
+      border-radius: var(--radius);
+      max-width: 420px;
+      width: 100%;
+      padding: calc(var(--spacing) * 6) calc(var(--spacing) * 5);
+      text-align: center;
+    }
+    .banned-box .icon {
+      font-size: 2.5rem;
+      display: block;
+      margin-bottom: calc(var(--spacing) * 3);
+    }
+    .banned-box h3 {
+      margin: 0 0 calc(var(--spacing) * 3);
+      font-size: 1.1rem;
+    }
+    .banned-box p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin: 0 0 calc(var(--spacing) * 4);
+    }
   </style>
 </head>
 <body>
@@ -518,6 +597,41 @@
   </div>
 </div>
 
+<!-- ═══ Content Guidelines Agreement Modal ═══ -->
+<div class="modal-overlay" id="guidelinesModal">
+  <div class="guidelines-box">
+    <div class="guidelines-scroll">
+      <h3>A few things before you post</h3>
+      <p class="intro">The Critter Feed celebrates positive tournament moments &mdash; <strong>kindness, sportsmanship, humor, good memories</strong>. Please keep it that way.</p>
+      <div class="rules-header">When you post, please:</div>
+      <ol class="rules">
+        <li>Share positive Critter moments from the tournament &mdash; no drama, no ads</li>
+        <li>Be respectful of everyone &mdash; no harassment or hate speech</li>
+        <li>Keep it tournament-appropriate &mdash; nothing vulgar, illegal, or weapon-related</li>
+        <li>Photos of others &mdash; only with their permission</li>
+        <li>Never post personal info &mdash; phones, addresses, anything private</li>
+        <li>Post as yourself</li>
+      </ol>
+      <p class="enforcement">Posts that don't match the spirit of these guidelines will be removed. If you think a decision was a mistake, stop by the tournament desk.</p>
+    </div>
+    <div class="guidelines-actions">
+      <button class="btn btn-primary" onclick="acceptGuidelines()">I Agree</button>
+      <button class="btn btn-outline" onclick="cancelGuidelines()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Banned User Notice Modal ═══ -->
+<div class="modal-overlay" id="bannedNoticeModal">
+  <div class="banned-box">
+    <span class="icon">&#128591;</span>
+    <h3>Posting is paused for you</h3>
+    <p>One of your posts strayed from the Critter Feed guidelines, so posting has been paused on this device. You can still view the feed anytime.</p>
+    <p>If you think this is a mistake, please stop by the tournament desk &mdash; we're happy to talk it over.</p>
+    <button class="btn btn-primary" onclick="closeBannedNotice()">Back to the Feed</button>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════════════════════════════
 // Config
@@ -551,6 +665,12 @@ var feedLoading = false;
 var clientMeta = null;  // populated on load
 var pendingBan = null;  // post being banned
 var bannedIdentifiers = {};  // admin: { 'client_id:xyz': true, 'ip:abc': true, ... }
+
+// Content guidelines version — bump this to force re-acceptance on all devices
+var GUIDELINES_VERSION = '1';
+
+// Cached ban check result (null = unknown, true/false after first check)
+var cachedIsBanned = null;
 
 // ════════════════════════════════════════════════════════════════════
 // Device fingerprinting — best-effort identification for moderation
@@ -657,7 +777,9 @@ captureClientMeta();
 // ════════════════════════════════════════════════════════════════════
 // Screen switching
 // ════════════════════════════════════════════════════════════════════
-function showScreen(name) {
+// Actually show a screen (no gating). Internal use only — public callers
+// should use showScreen() which may intercept Share navigation.
+function showScreenRaw(name) {
   document.getElementById('formScreen').classList.add('hidden');
   document.getElementById('feedScreen').classList.add('hidden');
   document.getElementById('navShare').classList.remove('active');
@@ -672,6 +794,52 @@ function showScreen(name) {
     document.getElementById('navFeed').classList.add('active');
   }
   window.scrollTo(0, 0);
+}
+
+// Public screen switcher. When going to the form, first check ban status
+// and then verify the user has accepted the current guidelines version.
+async function showScreen(name) {
+  if (name !== 'form') {
+    showScreenRaw(name);
+    return;
+  }
+
+  // Ban check (cached per session)
+  if (cachedIsBanned === null) {
+    if (!clientMeta) await captureClientMeta();
+    cachedIsBanned = await isBanned();
+  }
+  if (cachedIsBanned) {
+    document.getElementById('bannedNoticeModal').classList.add('active');
+    return;  // stay on feed
+  }
+
+  // Guidelines check
+  var agreedVersion = '';
+  try { agreedVersion = localStorage.getItem('critters_agreed') || ''; } catch (e) {}
+  if (agreedVersion !== GUIDELINES_VERSION) {
+    document.getElementById('guidelinesModal').classList.add('active');
+    return;  // stay on feed until they agree
+  }
+
+  // All clear — show the form
+  showScreenRaw('form');
+}
+
+function acceptGuidelines() {
+  try { localStorage.setItem('critters_agreed', GUIDELINES_VERSION); } catch (e) {}
+  document.getElementById('guidelinesModal').classList.remove('active');
+  showScreenRaw('form');
+}
+
+function cancelGuidelines() {
+  document.getElementById('guidelinesModal').classList.remove('active');
+  // Stay on feed — no navigation needed, feed is already the active screen
+}
+
+function closeBannedNotice() {
+  document.getElementById('bannedNoticeModal').classList.remove('active');
+  // Stay on feed
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -824,14 +992,17 @@ async function submitForm() {
     // Ensure metadata captured
     if (!clientMeta) await captureClientMeta();
 
-    // Ban check — show a soft content-policy message
+    // Ban check — if the user was banned between opening the form and
+    // hitting submit, send them back to the feed with the warm notice.
     var banned = await isBanned();
     if (banned) {
-      showError('Your account has been temporarily disabled due to a content policy issue. If you believe this is a mistake, please stop by the tournament desk.');
+      cachedIsBanned = true;
       var btnX = document.getElementById('submitBtn');
       btnX.dataset.submitting = '';
       btnX.textContent = 'Share My Story';
       updateSubmitState();
+      showScreenRaw('feed');
+      document.getElementById('bannedNoticeModal').classList.add('active');
       return;
     }
 
@@ -1320,6 +1491,7 @@ function resetLocalStorage() {
   try {
     localStorage.removeItem('critters_cid');
     localStorage.removeItem('critters_name');
+    localStorage.removeItem('critters_agreed');
     alert('localStorage cleared. Reloading...');
     location.reload();
   } catch (e) { alert('Could not clear storage: ' + e.message); }
