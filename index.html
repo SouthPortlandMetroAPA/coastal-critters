@@ -570,11 +570,6 @@
     </div>
   </div>
 
-  <!-- TEMP: validation-only reset button. Remove before event. -->
-  <div style="text-align:center;margin-top:16px">
-    <button type="button" onclick="resetLocalStorage()" style="font-size:0.7rem;padding:4px 10px;border:1px dashed #ccc;border-radius:8px;background:none;color:#aaa;cursor:pointer;font-family:inherit">Reset localStorage (TEMP)</button>
-  </div>
-
   <div class="footer">APA NW Challenge &middot; Coastal Critters</div>
 </div>
 
@@ -1578,17 +1573,6 @@ async function downloadPhotos(all) {
   } finally {
     newBtn.disabled = false; allBtn.disabled = false;
   }
-}
-
-// TEMP: validation helper — clear all critter localStorage keys
-function resetLocalStorage() {
-  try {
-    localStorage.removeItem('critters_cid');
-    localStorage.removeItem('critters_name');
-    localStorage.removeItem('critters_agreed');
-    alert('localStorage cleared. Reloading...');
-    location.reload();
-  } catch (e) { alert('Could not clear storage: ' + e.message); }
 }
 
 // Init — default to the feed
