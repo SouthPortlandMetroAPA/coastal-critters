@@ -106,22 +106,34 @@
     .form-group textarea { min-height: 110px; resize: vertical; }
     .char-count { font-size: 0.75rem; color: var(--muted); text-align: right; margin-top: 2px; }
 
-    /* Photo picker */
-    .photo-wrap {
+    /* Photo picker — two tiles: Take Photo (camera) | Upload Photo (library) */
+    .photo-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .photo-actions.hidden { display: none; }
+    .photo-tile {
+      flex: 1;
+      min-width: 0;
       border: 2px dashed var(--border);
       border-radius: var(--radius);
-      padding: calc(var(--spacing) * 8) calc(var(--spacing) * 4);
+      padding: calc(var(--spacing) * 5) calc(var(--spacing) * 3);
       text-align: center;
       background: #fafafa;
       cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
-      display: block;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-height: 144px;
     }
-    .photo-wrap:hover, .photo-wrap:active { border-color: var(--primary); background: #faf8f3; }
-    .photo-wrap input[type="file"] { display: none; }
-    .photo-wrap .icon { font-size: 3rem; display: block; margin-bottom: calc(var(--spacing) * 2); }
-    .photo-wrap .text { font-weight: 600; font-size: 1rem; }
-    .photo-wrap .hint { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+    .photo-tile:hover, .photo-tile:active { border-color: var(--primary); background: #faf8f3; }
+    .photo-tile input[type="file"] { display: none; }
+    .photo-tile .icon { font-size: 2.25rem; line-height: 1; margin-bottom: calc(var(--spacing) * 2); }
+    .photo-tile .text { font-weight: 600; font-size: 1rem; }
+    .photo-tile .hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
     .photo-preview { display: none; text-align: center; }
     .photo-preview.shown { display: block; }
     .photo-preview img {
@@ -498,12 +510,20 @@
 
         <div class="form-group">
           <label>Photo of you with your Critter <span class="hint">(required)</span></label>
-          <label class="photo-wrap" id="photoWrap" for="photoInput">
-            <span class="icon">&#128247;</span>
-            <span class="text">Tap to take a photo</span>
-            <div class="hint">Use your phone camera</div>
-            <input type="file" id="photoInput" accept="image/*" capture="environment" onchange="handlePhoto(event)">
-          </label>
+          <div class="photo-actions" id="photoWrap">
+            <label class="photo-tile" for="photoCamera">
+              <span class="icon">&#128247;</span>
+              <span class="text">Take Photo</span>
+              <span class="hint">Use your camera</span>
+              <input type="file" id="photoCamera" accept="image/*" capture="environment" onchange="handlePhoto(event)">
+            </label>
+            <label class="photo-tile" for="photoLibrary">
+              <span class="icon">&#128444;&#65039;</span>
+              <span class="text">Upload Photo</span>
+              <span class="hint">From your device</span>
+              <input type="file" id="photoLibrary" accept="image/*" onchange="handlePhoto(event)">
+            </label>
+          </div>
           <div class="photo-preview" id="photoPreview">
             <img id="photoImg" alt="Your photo">
             <br>
@@ -925,7 +945,11 @@ function showPreview() {
 function clearPhoto() {
   photoBlob = null;
   photoDataUrl = null;
-  document.getElementById('photoInput').value = '';
+  // Clear both file inputs so the same file can be re-picked from either path.
+  var cam = document.getElementById('photoCamera');
+  var lib = document.getElementById('photoLibrary');
+  if (cam) cam.value = '';
+  if (lib) lib.value = '';
   document.getElementById('photoPreview').classList.remove('shown');
   document.getElementById('photoWrap').classList.remove('hidden');
   updateSubmitState();
