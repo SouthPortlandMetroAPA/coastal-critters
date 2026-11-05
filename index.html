@@ -662,14 +662,16 @@ var SUPABASE_URL = 'https://dqzbekoaysgaiqljueac.supabase.co';
 var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxemJla29heXNnYWlxbGp1ZWFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNzA5NzgsImV4cCI6MjA5MDc0Njk3OH0.cCdGxZ4zEFzU_r6lWSDeoNWG67Q4MSYCAtpds035dfU';
 var BUCKET = 'coastal-critters-photos';
 var PHOTO_BASE = SUPABASE_URL + '/storage/v1/object/public/' + BUCKET + '/';
-var SB_HEADERS = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+// Tables live in the coastal schema, not the first exposed schema, so every REST call must name it.
+var SCHEMA = 'coastal';
+var SB_HEADERS = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'Accept-Profile': SCHEMA, 'Content-Profile': SCHEMA };
 var PAGE_SIZE = 20;
 
 // Admin mode: pass service_role key via ?key=
 var SERVICE_KEY = new URLSearchParams(window.location.search).get('key') || '';
 var IS_ADMIN = !!SERVICE_KEY;
 var SB_WRITE_HEADERS = IS_ADMIN
-  ? { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }
+  ? { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY, 'Accept-Profile': SCHEMA, 'Content-Profile': SCHEMA, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }
   : SB_HEADERS;
 
 if (IS_ADMIN) {
@@ -1080,6 +1082,7 @@ async function submitForm() {
       headers: {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Accept-Profile': SCHEMA, 'Content-Profile': SCHEMA,
         'Content-Type': 'application/json',
         'Prefer': 'return=minimal'
       },
@@ -1242,7 +1245,10 @@ async function loadFeed(reset) {
   feedLoading = false;
 }
 
-function esc(s) { var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+// Also escapes double quotes, because these values land inside HTML attributes.
+function esc(s) { var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML.replace(/"/g, '&quot;'); }
+// JSON for an onclick in a single-quoted attribute. The parser decodes entities first, so & and ' must both be escaped.
+function attrJson(v) { return JSON.stringify(v).replace(/&/g, '&amp;').replace(/'/g, '&#39;'); }
 
 function formatDate(isoStr) {
   if (!isoStr) return '';
@@ -1310,9 +1316,9 @@ function renderPost(post) {
 
     // Ban / Unban
     if (isBanned) {
-      html += '<button class="btn btn-outline btn-sm" onclick=\'unbanFromPost(' + JSON.stringify(post.client_id || '') + ',' + JSON.stringify(post.ip_address || '') + ',' + JSON.stringify(post.canvas_fp || '') + ')\'>Unban User</button>';
+      html += '<button class="btn btn-outline btn-sm" onclick=\'unbanFromPost(' + attrJson(post.client_id || '') + ',' + attrJson(post.ip_address || '') + ',' + attrJson(post.canvas_fp || '') + ')\'>Unban User</button>';
     } else {
-      html += '<button class="btn btn-danger btn-sm" onclick=\'openBanModal(' + JSON.stringify({
+      html += '<button class="btn btn-danger btn-sm" onclick=\'openBanModal(' + attrJson({
         postId: post.id,
         photoPath: post.photo_path,
         playerName: post.player_name,
@@ -1322,11 +1328,11 @@ function renderPost(post) {
         webglRenderer: post.webgl_renderer || '',
         platform: post.platform || '',
         screenSize: post.screen_size || ''
-      }).replace(/'/g, '&#39;') + ')\'>Hide + Ban User</button>';
+      }) + ')\'>Hide + Ban User</button>';
     }
 
     // Permanent Delete — destroys DB row + storage object
-    html += '<button class="btn btn-danger btn-sm" style="background:#7f1d1d;border-color:#7f1d1d" onclick=\'deletePostForever(' + post.id + ',' + JSON.stringify(post.photo_path) + ',' + JSON.stringify(post.player_name || '') + ')\'>Delete</button>';
+    html += '<button class="btn btn-danger btn-sm" style="background:#7f1d1d;border-color:#7f1d1d" onclick=\'deletePostForever(' + post.id + ',' + attrJson(post.photo_path) + ',' + attrJson(post.player_name || '') + ')\'>Delete</button>';
 
     html += '</div>';
     html += '</div>';
@@ -1374,7 +1380,7 @@ async function deletePostForever(postId, photoPath, playerName) {
 
     // Delete the photo from storage
     if (photoPath) {
-      await fetch(SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + photoPath, {
+      await fetch(SUPABASE_URL + '/storage/v1/object/' + BUCKET + '/' + encodeURIComponent(photoPath), {
         method: 'DELETE',
         headers: { 'apikey': SERVICE_KEY, 'Authorization': 'Bearer ' + SERVICE_KEY }
       });
