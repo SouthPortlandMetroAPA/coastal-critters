@@ -1245,7 +1245,8 @@ async function loadFeed(reset) {
   feedLoading = false;
 }
 
-function esc(s) { var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+// Also escapes double quotes, because these values land inside HTML attributes.
+function esc(s) { var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML.replace(/"/g, '&quot;'); }
 
 function formatDate(isoStr) {
   if (!isoStr) return '';
